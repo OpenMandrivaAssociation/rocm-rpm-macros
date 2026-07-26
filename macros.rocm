@@ -1,0 +1,80 @@
+# ROCm packaging macros for OpenMandriva
+# Keep version/tag/GPU lists here so the whole stack can bump together.
+
+# --- Version lock (TheRock 7.14 / LLVM 23) ---------------------------------
+%rocm_major			7
+%rocm_minor			14
+%rocm_patch			0
+%rocm_release			%{rocm_major}.%{rocm_minor}
+%rocm_version			%{rocm_release}.%{rocm_patch}
+
+# Tag / source URL style: therock-7.14 vs rocm-7.2.x
+# Switch %rocm_tag_prefix to "rocm-" only if retreating to the stable stream.
+%rocm_tag_prefix		therock-
+%rocm_src_tag			%{rocm_tag_prefix}%{rocm_release}
+
+# Monorepo release assets (source tarballs, not binaries)
+%rocm_systems_release_url	https://github.com/ROCm/rocm-systems/releases/download/%{rocm_src_tag}
+%rocm_libraries_release_url	https://github.com/ROCm/rocm-libraries/releases/download/%{rocm_src_tag}
+
+# Component source helpers:
+#   Source0: %{rocm_systems_source clr}
+#   Source0: %{rocm_llvm_project_source}
+%rocm_systems_source()		%{rocm_systems_release_url}/%{1}.tar.gz#/%{1}-%{rocm_version}.tar.gz
+%rocm_libraries_source()	%{rocm_libraries_release_url}/%{1}.tar.gz#/%{1}-%{rocm_version}.tar.gz
+%rocm_llvm_project_source	https://github.com/ROCm/llvm-project/archive/refs/tags/%{rocm_src_tag}.tar.gz#/llvm-project-%{rocm_src_tag}.tar.gz
+%rocm_component_source()	https://github.com/ROCm/%{1}/archive/refs/tags/%{rocm_src_tag}.tar.gz#/%{1}-%{rocm_src_tag}.tar.gz
+
+# --- Install layout (FHS, no /opt/rocm) ------------------------------------
+%rocm_prefix			%{_prefix}
+%rocm_libdir			%{_libdir}
+%rocm_includedir		%{_includedir}
+%rocm_datadir			%{_datadir}/rocm
+%rocm_bitcode_dir		%{_libdir}/amdgcn/bitcode
+%rocm_cmake_dir			%{_libdir}/cmake
+
+# --- GPU ISA lists ---------------------------------------------------------
+# Default set for Cooker: Polaris (gfx803, OM-restored runtime) + common
+# Radeon/Instinct. Every gfx* multiplies build time (especially rocBLAS).
+# gfx803 needs ROCr doorbell + r800 image patches (rocm-runtime >= 7.14.0-9).
+%rocm_gpu_targets		gfx803;gfx906;gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
+
+# Header-only / lightweight primitives: full matrix including gfx803
+%rocm_gpu_targets_prim		%{rocm_gpu_targets}
+
+# Subsets for packages that cannot afford the full matrix or lack gfx803 kernels
+# hipBLASLt: upstream cmake SUPPORTED_ARCHITECTURES has no gfx803; TensileLite
+# ships no r9nano logic (only navi3x/4x + CDNA). Cannot enable without new
+# solution YAML + validation patches — use rocBLAS on Polaris instead.
+%rocm_gpu_targets_hipblaslt	gfx1100;gfx1101;gfx1200;gfx1201
+# RCCL: add gfx803 for Polaris multi-GPU / device kernels (upstream default omits it)
+%rocm_gpu_targets_rccl		gfx803;gfx906;gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
+# Dense BLAS (Tensile). gfx803 = r9nano asm_full (Polaris/Fiji).
+# GFX11/12 need python-tensile >= 7.14.0-2 (true16 f16 convert for LLVM 23).
+%rocm_gpu_targets_blas		gfx803;gfx906;gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
+%rocm_gpu_targets_test		gfx803;gfx1100;gfx1101;gfx1201
+
+# CMake argument forms (quote targets: ';' is shell metacharacter)
+%rocm_cmake_gpu_targets		-DAMDGPU_TARGETS="%{rocm_gpu_targets}" -DGPU_TARGETS="%{rocm_gpu_targets}"
+%rocm_cmake_gpu_targets_prim	-DAMDGPU_TARGETS="%{rocm_gpu_targets_prim}" -DGPU_TARGETS="%{rocm_gpu_targets_prim}"
+%rocm_cmake_gpu_targets_blas	-DAMDGPU_TARGETS="%{rocm_gpu_targets_blas}" -DGPU_TARGETS="%{rocm_gpu_targets_blas}"
+
+# --- Common CMake options for ROCm components ------------------------------
+%rocm_cmake_fhs		-DCMAKE_INSTALL_PREFIX=%{rocm_prefix} -DCMAKE_INSTALL_LIBDIR=%{_lib} -DFILE_REORG_BACKWARD_COMPATIBILITY=OFF -DINCLUDE_PATH_COMPATIBILITY=OFF -DROCM_SYMLINK_LIBS=OFF
+# Prefer Ninja when the package uses imperative %cmake
+%rocm_cmake_generator		-G Ninja
+
+# --- Toolchain hints (used once hipcc exists) ------------------------------
+%__cc_rocm			hipcc
+%__cxx_rocm			hipcc
+# Raw clang + enable_language(HIP): needs FHS bitcode path (hip-lang also sets this)
+%rocm_hip_clang_flags	--rocm-path=%{rocm_prefix} --rocm-device-lib-path=%{rocm_bitcode_dir}
+
+# --- Dense BLAS / Tensile packaging notes ----------------------------------
+# Full %rocm_gpu_targets_blas (gfx803 through gfx12) TensileCreateLibrary is RAM-heavy.
+# Cap at 8 jobs in rocblas.spec (-DTensile_CPU_THREADS=8); 32 OOMs on 64G hosts.
+# Prefer TMPDIR on a large disk (/home), not small /tmp tmpfs.
+# true16 f16 converts need python-tensile with 0002-true16-f16-cvt-llvm23.patch.
+
+# Minimum system LLVM major expected for this ROCm stream
+%rocm_llvm_maj_ver		23
