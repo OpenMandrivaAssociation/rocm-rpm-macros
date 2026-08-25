@@ -37,7 +37,84 @@
 # Default set for Cooker: Polaris (gfx803, OM-restored runtime) + common
 # Radeon/Instinct. Every gfx* multiplies build time (especially rocBLAS).
 # gfx803 needs ROCr doorbell + r800 image patches (rocm-runtime >= 7.14.0-9).
+#
+# These stay static so every rpm -q does not spawn clang. Packages that
+# should pick up new families (gfx1500 / RDNA6, …) on the next rebuild
+# invoke the detector instead of hardcoding:
+#   %global hip_archs %{rocm_detect_gpu_archs}
+#   %global rocm_gpu_targets gfx803;%{rocm_detect_gpu_targets}
+# %rocm_gpu_archs_skip (space-separated) drops an ISA without a rebuild
+# of this package. The detector never looks at the builder's GPU
+# (amdgpu-arch / rocminfo).
 %rocm_gpu_targets		gfx803;gfx906;gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
+%rocm_gpu_archs_fallback	gfx906 gfx908 gfx90a gfx942 gfx1030 gfx1100 gfx1101 gfx1102 gfx1200 gfx1201
+
+# clang -mcpu=help ∩ %{rocm_bitcode_dir}/oclc_isa_version_*.bc.
+# Keep discrete / CDNA product chips; drop *-generic, GCN gfx6/7/8
+# (Polaris stays on the static list), RDNA1, RDNA2 SKU variants,
+# RDNA3/4 APUs. Family 13+ is kept as soon as both LLVM and
+# device-libs ship the ISA.
+%rocm_detect_gpu_archs() %{lua:\
+local fallback = {}\
+for a in rpm.expand("%{rocm_gpu_archs_fallback}"):gmatch("%S+") do fallback[#fallback+1] = a end\
+local function exists(p)\
+	local f = io.open(p, "r")\
+	if f then f:close() return true end\
+	return false\
+end\
+local function isa_num(name)\
+	return tonumber(name:sub(4), 16) or 0\
+end\
+local function keep(name)\
+	if not name:match("^gfx[0-9a-f][0-9a-f][0-9a-f]+$") then return false end\
+	local rest = name:sub(4)\
+	local fam, minor\
+	if rest:match("^1[0-9]") and #rest >= 4 then\
+		fam = tonumber(rest:sub(1,2))\
+		minor = rest:sub(3)\
+	else\
+		fam = tonumber(rest:sub(1,1))\
+		minor = rest:sub(2)\
+	end\
+	if not fam or fam <= 8 then return false end\
+	if fam == 9 then\
+		if minor == "06" or minor == "08" or minor == "0a" or minor == "40" or minor == "41" or minor == "42" then return true end\
+		local first = minor:sub(1,1)\
+		return first == "5" or first == "6" or first == "7" or first == "8" or first == "9" or first == "a" or first == "b" or first == "c" or first == "d" or first == "e" or first == "f"\
+	end\
+	if fam == 10 then return name == "gfx1030" end\
+	if fam == 11 then return name == "gfx1100" or name == "gfx1101" or name == "gfx1102" end\
+	if fam == 12 then return name == "gfx1200" or name == "gfx1201" end\
+	return true\
+end\
+local skip = {}\
+for s in rpm.expand("%{?rocm_gpu_archs_skip}"):gmatch("%S+") do skip[s] = true end\
+local clang = rpm.expand("%{_bindir}") .. "/clang"\
+if not exists(clang) then clang = "clang" end\
+local h = io.popen(clang .. " -target amdgcn-amd-amdhsa -mcpu=help 2>&1")\
+local out = h and (h:read("*a") or "") or ""\
+if h then h:close() end\
+local cpus = {}\
+for name in out:gmatch("gfx[0-9a-f][0-9a-f][0-9a-f]+") do\
+	cpus[name] = true\
+end\
+local bcdir = rpm.expand("%{rocm_bitcode_dir}")\
+local list = {}\
+for name, _ in pairs(cpus) do\
+	if keep(name) and not skip[name] and exists(bcdir .. "/oclc_isa_version_" .. name:sub(4) .. ".bc") then\
+		list[#list+1] = name\
+	end\
+end\
+if #list == 0 then list = fallback end\
+table.sort(list, function(a,b) return isa_num(a) < isa_num(b) end)\
+print(table.concat(list, " "))\
+}
+
+# Semicolon form for -DAMDGPU_TARGETS / -DGPU_TARGETS.
+%rocm_detect_gpu_targets() %{lua:\
+local s = rpm.expand("%{rocm_detect_gpu_archs}")\
+print((s:gsub(" ", ";")))\
+}
 
 # Header-only / lightweight primitives: full matrix including gfx803
 %rocm_gpu_targets_prim		%{rocm_gpu_targets}
