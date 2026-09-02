@@ -1,14 +1,14 @@
 # ROCm packaging macros for OpenMandriva
 # Keep version/tag/GPU lists here so the whole stack can bump together.
 
-# --- Version lock (TheRock 7.14 / LLVM 23) ---------------------------------
-%rocm_major			7
-%rocm_minor			14
+# --- Version lock (TheRock 10.0 / LLVM 23) ---------------------------------
+%rocm_major			10
+%rocm_minor			0
 %rocm_patch			0
 %rocm_release			%{rocm_major}.%{rocm_minor}
 %rocm_version			%{rocm_release}.%{rocm_patch}
 
-# Tag / source URL style: therock-7.14 vs rocm-7.2.x
+# Tag / source URL style: therock-10.0 vs rocm-7.2.x
 # Switch %rocm_tag_prefix to "rocm-" only if retreating to the stable stream.
 %rocm_tag_prefix		therock-
 %rocm_src_tag			%{rocm_tag_prefix}%{rocm_release}
@@ -127,7 +127,7 @@ print((s:gsub(" ", ";")))\
 # RCCL: add gfx803 for Polaris multi-GPU / device kernels (upstream default omits it)
 %rocm_gpu_targets_rccl		gfx803;gfx906;gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
 # Dense BLAS (Tensile). gfx803 = r9nano asm_full (Polaris/Fiji).
-# GFX11/12 need python-tensile >= 7.14.0-2 (true16 f16 convert for LLVM 23).
+# GFX11/12 need python-tensile with the true16 f16 convert patch for LLVM 23.
 %rocm_gpu_targets_blas		gfx803;gfx906;gfx908;gfx90a;gfx942;gfx1030;gfx1100;gfx1101;gfx1102;gfx1200;gfx1201
 %rocm_gpu_targets_test		gfx803;gfx1100;gfx1101;gfx1201
 
