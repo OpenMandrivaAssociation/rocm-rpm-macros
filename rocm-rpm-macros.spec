@@ -4,7 +4,7 @@
 %define debug_package %{nil}
 
 Name:		rocm-rpm-macros
-Version:	10.0.0
+Version:	10.1.0
 Release:	1
 Summary:	RPM macros for building ROCm packages
 License:	MIT
@@ -15,7 +15,7 @@ BuildArch:	noarch
 
 %description
 Shared RPM macros for OpenMandriva ROCm packaging: version lock (currently
-TheRock 10.0), source URL helpers, FHS install layout, GPU ISA lists, and
+TheRock 10.1), source URL helpers, FHS install layout, GPU ISA lists, and
 common CMake flags.
 
 %%rocm_detect_gpu_archs / %%rocm_detect_gpu_targets intersect clang's
